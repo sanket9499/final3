@@ -1,0 +1,392 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Barber Booking with Schedule & Notifications</title>
+<style>
+  body { font-family: Arial, sans-serif; background:#f5f5f5; margin:20px; }
+  .centered { text-align:center; margin-top:40px; }
+  .button { padding: 12px 24px; margin: 10px; font-size:1rem; border:none; border-radius:6px; background:#007BFF; color:#fff; cursor:pointer; }
+  .button:hover { background:#0056b3; }
+  .panel { max-width:500px; margin: 30px auto; background:#fff; padding:20px; border-radius:10px; box-shadow:0 0 10px rgba(0,0,0,0.1); display:none; }
+  input, select, textarea, button { width:100%; padding:10px; margin-top:10px; font-size:1rem; border-radius:5px; border:1px solid #ccc; }
+  label { font-weight:600; margin-top:15px; display:block; }
+  h2 { margin-top:0; }
+  ul { padding-left: 20px; }
+</style>
+</head>
+<body>
+
+<div class="centered" id="loginSelection">
+  <h1>Welcome to StyleHub</h1>
+  <p>Select your login type:</p>
+  <button class="button" onclick="startLogin('customer')">Customer Login</button>
+  <button class="button" onclick="startLogin('barber')">Barber Login</button>
+</div>
+
+<div class="panel" id="loginForm">
+  <h2 id="loginTitle">Login</h2>
+  <input type="text" id="identifier" placeholder="Enter Email or Mobile Number" />
+  <button onclick="requestOTP()">Request OTP</button>
+</div>
+
+<div class="panel" id="otpForm">
+  <h2>Enter OTP</h2>
+  <input type="text" id="otpInput" placeholder="Enter OTP" maxlength="6" />
+  <button onclick="verifyOTP()">Verify OTP</button>
+</div>
+
+<!-- Customer Panel -->
+<div class="panel" id="customerPanel">
+  <h2>🎉 Welcome, Customer!</h2>
+  <p>Book your appointment below:</p>
+
+  <label for="customerName">Your Name:</label>
+  <input type="text" id="customerName" placeholder="Enter your name" />
+
+  <label for="areaSelect">Select Area:</label>
+  <select id="areaSelect" onchange="updateShops()">
+    <option value="">-- Select Area --</option>
+  </select>
+
+  <label for="shopSelect">Select Shop:</label>
+  <select id="shopSelect" onchange="updateBarbersAndServices()">
+    <option value="">-- Select Shop --</option>
+  </select>
+
+  <label for="barberSelect">Select Barber:</label>
+  <select id="barberSelect" onchange="updateAvailableTimes()">
+    <option value="">-- Select Barber --</option>
+  </select>
+
+  <label for="timeSelect">Select Time:</label>
+  <select id="timeSelect">
+    <option value="">-- Select Time --</option>
+  </select>
+
+  <label for="serviceSelect">Select Service:</label>
+  <select id="serviceSelect">
+    <option value="">-- Select Service --</option>
+  </select>
+
+  <label for="paymentSelect">Payment Method:</label>
+  <select id="paymentSelect">
+    <option value="UPI">UPI</option>
+    <option value="Banking">Banking</option>
+    <option value="Cash">Cash</option>
+  </select>
+
+  <button onclick="confirmBooking()">Confirm Booking</button>
+</div>
+
+<!-- Barber Panel -->
+<div class="panel" id="barberPanel">
+  <h2>🔧 Barber Dashboard</h2>
+  <p><strong>Set your available time slots (24h format):</strong></p>
+  <textarea id="barberTimes" rows="4" placeholder="Enter available times separated by commas, e.g. 10:00,11:30,13:00"></textarea>
+  <button onclick="saveBarberSchedule()">Save Schedule</button>
+
+  <h3>Your Bookings:</h3>
+  <ul id="barberBookingsList">No bookings yet.</ul>
+</div>
+
+<script>
+let userType = "";
+let generatedOTP = "";
+
+// Data keys in localStorage
+const SHOPS_KEY = 'barbershops';
+const BOOKINGS_KEY = 'bookings';
+const BARBER_SCHEDULES_KEY = 'barberSchedules';
+
+// Sample Shops Data
+const sampleShops = [
+  {
+    name: "Elite Cuts",
+    area: "Ahmedabad",
+    services: ["Haircut - ₹200", "Beard - ₹100", "Shave - ₹150"],
+    barbers: ["John", "Mike", "Sarah"]
+  },
+  {
+    name: "Sharp Styles",
+    area: "Surat",
+    services: ["Haircut - ₹180", "Beard - ₹120"],
+    barbers: ["Raj", "Ali"]
+  }
+];
+
+// Initialize shops data if not present
+if (!localStorage.getItem(SHOPS_KEY)) {
+  localStorage.setItem(SHOPS_KEY, JSON.stringify(sampleShops));
+}
+
+// --- Login flow ---
+function startLogin(type) {
+  userType = type;
+  document.getElementById("loginSelection").style.display = "none";
+  document.getElementById("loginForm").style.display = "block";
+  document.getElementById("loginTitle").innerText = `${type === 'customer' ? 'Customer' : 'Barber'} Login`;
+}
+
+function requestOTP() {
+  const id = document.getElementById("identifier").value.trim();
+  if (!id) return alert("Please enter your email or mobile number.");
+  generatedOTP = Math.floor(100000 + Math.random() * 900000).toString();
+  console.log(`OTP for ${id}: ${generatedOTP}`);
+  alert(`OTP sent to ${id} (check console in this demo).`);
+  document.getElementById("loginForm").style.display = "none";
+  document.getElementById("otpForm").style.display = "block";
+}
+
+function verifyOTP() {
+  const entered = document.getElementById("otpInput").value.trim();
+  if (entered === generatedOTP) {
+    alert("✅ OTP Verified!");
+    document.getElementById("otpForm").style.display = "none";
+
+    if (userType === "customer") {
+      document.getElementById("customerPanel").style.display = "block";
+      loadAreas();
+    } else {
+      document.getElementById("barberPanel").style.display = "block";
+      loadBarberBookings();
+      loadBarberSchedule();
+    }
+  } else {
+    alert("❌ Invalid OTP. Try again.");
+  }
+}
+
+// --- Customer Panel Logic ---
+const areaSelect = document.getElementById('areaSelect');
+const shopSelect = document.getElementById('shopSelect');
+const barberSelect = document.getElementById('barberSelect');
+const serviceSelect = document.getElementById('serviceSelect');
+const timeSelect = document.getElementById('timeSelect');
+const paymentSelect = document.getElementById('paymentSelect');
+const customerNameInput = document.getElementById('customerName');
+
+function loadAreas() {
+  const shops = JSON.parse(localStorage.getItem(SHOPS_KEY)) || [];
+  const areas = [...new Set(shops.map(s => s.area))];
+  areaSelect.innerHTML = '<option value="">-- Select Area --</option>';
+  areas.forEach(area => {
+    const opt = document.createElement('option');
+    opt.value = area;
+    opt.textContent = area;
+    areaSelect.appendChild(opt);
+  });
+  shopSelect.innerHTML = '<option value="">-- Select Shop --</option>';
+  barberSelect.innerHTML = '<option value="">-- Select Barber --</option>';
+  serviceSelect.innerHTML = '<option value="">-- Select Service --</option>';
+  timeSelect.innerHTML = '<option value="">-- Select Time --</option>';
+}
+
+function updateShops() {
+  const selectedArea = areaSelect.value;
+  const shops = JSON.parse(localStorage.getItem(SHOPS_KEY)) || [];
+  const filteredShops = shops.filter(s => s.area === selectedArea);
+  shopSelect.innerHTML = '<option value="">-- Select Shop --</option>';
+  filteredShops.forEach((shop, idx) => {
+    const opt = document.createElement('option');
+    opt.value = idx;
+    opt.textContent = shop.name;
+    shopSelect.appendChild(opt);
+  });
+  // Reset downstream selects
+  barberSelect.innerHTML = '<option value="">-- Select Barber --</option>';
+  serviceSelect.innerHTML = '<option value="">-- Select Service --</option>';
+  timeSelect.innerHTML = '<option value="">-- Select Time --</option>';
+  shopSelect.filteredShops = filteredShops;
+}
+
+function updateBarbersAndServices() {
+  const shopIndex = shopSelect.value;
+  const filteredShops = shopSelect.filteredShops || [];
+  if (shopIndex === '') {
+    barberSelect.innerHTML = '<option value="">-- Select Barber --</option>';
+    serviceSelect.innerHTML = '<option value="">-- Select Service --</option>';
+    timeSelect.innerHTML = '<option value="">-- Select Time --</option>';
+    return;
+  }
+  const shop = filteredShops[shopIndex];
+  // Services
+  serviceSelect.innerHTML = '<option value="">-- Select Service --</option>';
+  shop.services.forEach(service => {
+    const opt = document.createElement('option');
+    opt.value = service;
+    opt.textContent = service;
+    serviceSelect.appendChild(opt);
+  });
+  // Barbers
+  barberSelect.innerHTML = '<option value="">-- Select Barber --</option>';
+  shop.barbers.forEach(barber => {
+    const opt = document.createElement('option');
+    opt.value = barber;
+    opt.textContent = barber;
+    barberSelect.appendChild(opt);
+  });
+  // Reset times
+  timeSelect.innerHTML = '<option value="">-- Select Time --</option>';
+}
+
+function updateAvailableTimes() {
+  const barberName = barberSelect.value;
+  timeSelect.innerHTML = '<option value="">-- Select Time --</option>';
+  if (!barberName) return;
+
+  const schedules = JSON.parse(localStorage.getItem(BARBER_SCHEDULES_KEY)) || {};
+  const times = schedules[barberName] || [];
+
+  if (times.length === 0) {
+    timeSelect.innerHTML = '<option value="">No available times set by barber</option>';
+    return;
+  }
+
+  times.forEach(t => {
+    const opt = document.createElement('option');
+    opt.value = t;
+    opt.textContent = t;
+    timeSelect.appendChild(opt);
+  });
+}
+
+function confirmBooking() {
+  const customerName = customerNameInput.value.trim();
+  const area = areaSelect.value;
+  const shopIndex = shopSelect.value;
+  const service = serviceSelect.value;
+  const barber = barberSelect.value;
+  const time = timeSelect.value;
+  const payment = paymentSelect.value;
+
+  if (!customerName || !area || shopIndex === '' || !service || !barber || !time || !payment) {
+    return alert('Please fill all booking details.');
+  }
+
+  const filteredShops = shopSelect.filteredShops || [];
+  const shop = filteredShops[shopIndex];
+  if (!shop) return alert('Invalid shop selected.');
+
+  // Save booking
+  const bookings = JSON.parse(localStorage.getItem(BOOKINGS_KEY)) || [];
+  const newBooking = {
+    customer: customerName,
+    area,
+    shop: shop.name,
+    service,
+    barber,
+    time,
+    payment,
+    timestamp: new Date().toISOString()
+  };
+  bookings.push(newBooking);
+  localStorage.setItem(BOOKINGS_KEY, JSON.stringify(bookings));
+
+  alert(`✅ Booking confirmed for ${time} with barber ${barber}`);
+
+  // Notify barber (simulate)
+  notifyBarber(newBooking);
+
+  // Reset form
+  customerNameInput.value = '';
+  areaSelect.value = '';
+  shopSelect.innerHTML = '<option value="">-- Select Shop --</option>';
+  barberSelect.innerHTML = '<option value="">-- Select Barber --</option>';
+  serviceSelect.innerHTML = '<option value="">-- Select Service --</option>';
+  timeSelect.innerHTML = '<option value="">-- Select Time --</option>';
+  paymentSelect.value = 'UPI';
+}
+
+// Notify barber: here we simulate email/SMS with alert and update barber dashboard
+function notifyBarber(booking) {
+  console.log(`Notification to barber ${booking.barber}: New booking from ${booking.customer} at ${booking.time} for ${booking.service}.`);
+  alert(`Notification sent to barber ${booking.barber} about your booking.`);
+
+  // If barber is logged in, update bookings list real-time (optional)
+  if(userType === 'barber'){
+    loadBarberBookings();
+  }
+}
+
+// --- Barber Panel Logic ---
+
+const barberTimesTextarea = document.getElementById('barberTimes');
+const barberBookingsList = document.getElementById('barberBookingsList');
+
+// Load barber schedule if exists
+function loadBarberSchedule() {
+  const schedules = JSON.parse(localStorage.getItem(BARBER_SCHEDULES_KEY)) || {};
+  // In real app, barber ID/email needed. Here we just simulate by "logged-in barber" name prompt
+  let barberName = prompt("Enter your barber name (for demo):");
+  if (!barberName) barberName = "Unknown";
+
+  // Save barber name for session use
+  sessionStorage.setItem('loggedInBarber', barberName);
+
+  barberTimesTextarea.value = (schedules[barberName] || []).join(', ');
+}
+
+// Save barber schedule times from textarea
+function saveBarberSchedule() {
+  let barberName = sessionStorage.getItem('loggedInBarber');
+  if (!barberName) {
+    alert("Barber name unknown, reload page and login again.");
+    return;
+  }
+
+  let times = barberTimesTextarea.value.trim();
+  if (!times) {
+    alert("Please enter some available times.");
+    return;
+  }
+  // Split and clean times
+  times = times.split(',').map(t => t.trim()).filter(t => t);
+
+  // Validate times (simple HH:mm check)
+  for (let t of times) {
+    if (!/^\d{2}:\d{2}$/.test(t)) {
+      alert(`Invalid time format detected: ${t}. Please use HH:mm format.`);
+      return;
+    }
+  }
+
+  const schedules = JSON.parse(localStorage.getItem(BARBER_SCHEDULES_KEY)) || {};
+  schedules[barberName] = times;
+  localStorage.setItem(BARBER_SCHEDULES_KEY, JSON.stringify(schedules));
+  alert("✅ Schedule saved!");
+}
+
+// Load barber bookings to dashboard
+function loadBarberBookings() {
+  let barberName = sessionStorage.getItem('loggedInBarber');
+  if (!barberName) {
+    barberBookingsList.innerHTML = '<li>Please refresh and login again.</li>';
+    return;
+  }
+  const bookings = JSON.parse(localStorage.getItem(BOOKINGS_KEY)) || [];
+  const myBookings = bookings.filter(b => b.barber === barberName);
+
+  if(myBookings.length === 0){
+    barberBookingsList.innerHTML = '<li>No bookings yet.</li>';
+    return;
+  }
+
+  barberBookingsList.innerHTML = '';
+  myBookings.forEach(b => {
+    const li = document.createElement('li');
+    li.textContent = `${b.customer} - ${b.service} at ${b.time} (${b.payment})`;
+    barberBookingsList.appendChild(li);
+  });
+}
+
+// Link dropdown onchange events
+areaSelect.onchange = updateShops;
+shopSelect.onchange = updateBarbersAndServices;
+barberSelect.onchange = updateAvailableTimes;
+
+</script>
+
+</body>
+</html>
